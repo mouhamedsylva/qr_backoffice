@@ -1,0 +1,107 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+/*
+ * Palettes QR-Order : chaudes, « restaurant ».
+ * La nuance 500 de terracotta (boutons en mode clair) garde un contraste
+ * ≥ 4,5:1 avec le texte blanc (WCAG AA).
+ */
+@theme static {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Fraunces", ui-serif, Georgia, serif;
+
+  --color-terracotta-50: #fef5ee;
+  --color-terracotta-100: #fde6d3;
+  --color-terracotta-200: #fac9a6;
+  --color-terracotta-300: #f59e6e;
+  --color-terracotta-400: #ea6a2c;
+  --color-terracotta-500: #cc4a12;
+  --color-terracotta-600: #ad3c0e;
+  --color-terracotta-700: #8f3210;
+  --color-terracotta-800: #742b12;
+  --color-terracotta-900: #5f2511;
+  --color-terracotta-950: #331006;
+
+  --color-safran-50: #fffbeb;
+  --color-safran-100: #fff2c6;
+  --color-safran-200: #ffe388;
+  --color-safran-300: #ffcf4a;
+  --color-safran-400: #fdba1f;
+  --color-safran-500: #f59f00;
+  --color-safran-600: #d97a00;
+  --color-safran-700: #b45509;
+  --color-safran-800: #92410e;
+  --color-safran-900: #78360f;
+  --color-safran-950: #451a03;
+
+  --color-menthe-50: #effaf1;
+  --color-menthe-100: #d8f3dd;
+  --color-menthe-200: #b3e6bd;
+  --color-menthe-300: #82d294;
+  --color-menthe-400: #4fb868;
+  --color-menthe-500: #2f9e44;
+  --color-menthe-600: #237f36;
+  --color-menthe-700: #1f652e;
+  --color-menthe-800: #1c5128;
+  --color-menthe-900: #194323;
+  --color-menthe-950: #0a2511;
+
+  --color-ardoise-50: #f2f5fb;
+  --color-ardoise-100: #e3e9f5;
+  --color-ardoise-200: #cbd6ec;
+  --color-ardoise-300: #a6b9de;
+  --color-ardoise-400: #7a95cc;
+  --color-ardoise-500: #5a75bc;
+  --color-ardoise-600: #475dae;
+  --color-ardoise-700: #3d4d9e;
+  --color-ardoise-800: #364283;
+  --color-ardoise-900: #2f3a69;
+  --color-ardoise-950: #1f2541;
+
+  --color-brique-50: #fef3f2;
+  --color-brique-100: #fee4e2;
+  --color-brique-200: #fecdca;
+  --color-brique-300: #fca8a3;
+  --color-brique-400: #f7766f;
+  --color-brique-500: #e5483f;
+  --color-brique-600: #cc3029;
+  --color-brique-700: #ab2620;
+  --color-brique-800: #8d231e;
+  --color-brique-900: #75231f;
+  --color-brique-950: #400d0b;
+
+  /* Neutres « pierre chaude » ; 950 = anthracite du mode sombre. */
+  --color-pierre-50: #faf7f2;
+  --color-pierre-100: #f3eee7;
+  --color-pierre-200: #e7e0d6;
+  --color-pierre-300: #d3c9bc;
+  --color-pierre-400: #a99e90;
+  --color-pierre-500: #7f7466;
+  --color-pierre-600: #62584c;
+  --color-pierre-700: #4a423a;
+  --color-pierre-800: #322c27;
+  --color-pierre-900: #221d19;
+  --color-pierre-950: #181412;
+}
+
+:root {
+  --ui-radius: 0.5rem;
+  /* Fond légèrement crème : les cartes blanches ressortent. */
+  --ui-bg-muted: var(--ui-color-neutral-50);
+}
+
+.dark {
+  --ui-bg: var(--ui-color-neutral-950);
+  --ui-bg-muted: var(--ui-color-neutral-900);
+  --ui-bg-elevated: var(--ui-color-neutral-900);
+}
+
+.font-display {
+  font-family: var(--font-display);
+  font-optical-sizing: auto;
+}
+
+/* Chiffres alignés pour les montants et les tableaux. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
