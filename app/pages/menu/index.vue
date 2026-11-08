@@ -2,7 +2,7 @@
 import { refDebounced } from '@vueuse/core';
 import { VueDraggable } from 'vue-draggable-plus';
 import type { DropdownMenuItem } from '@nuxt/ui';
-import { ConfirmModal, MenuCategoryFormModal, MenuItemFormModal } from '#components';
+import { ConfirmModal, MenuCategoryFormModal, MenuImportModal, MenuItemFormModal } from '#components';
 import type { Category, MenuItem, Paginated } from '~/types/api';
 import { ALLERGENS, DIETARY_TAGS } from '~/utils/menu';
 
@@ -19,6 +19,7 @@ const canManage = computed(() => restaurant.can('menu.manage'));
 const categoryModal = overlay.create(MenuCategoryFormModal);
 const itemModal = overlay.create(MenuItemFormModal);
 const confirmModal = overlay.create(ConfirmModal);
+const importModal = overlay.create(MenuImportModal);
 const previewOpen = ref(false);
 
 // --- Catégories ---
@@ -104,6 +105,11 @@ async function reorderItems() {
 function replaceItem(updated: MenuItem) {
   const index = items.value.findIndex((i) => i.id === updated.id);
   if (index >= 0) items.value[index] = { ...items.value[index], ...updated };
+}
+
+/** Import CSV / Excel de tout un menu. */
+async function openImport() {
+  if (await importModal.open()) await Promise.all([refreshItems(), refreshCategories()]);
 }
 
 async function openItem(item: MenuItem | null) {
@@ -195,6 +201,7 @@ realtime.on('menu.item_updated', (message) => {
           </template>
           <template #right>
             <UButton color="neutral" variant="outline" icon="i-lucide-smartphone" label="Aperçu client" class="hidden sm:inline-flex" @click="previewOpen = true" />
+            <UButton v-if="canManage" color="neutral" variant="outline" icon="i-lucide-file-spreadsheet" label="Importer" @click="openImport" />
             <UButton v-if="canManage" icon="i-lucide-plus" label="Article" @click="openItem(null)" />
           </template>
         </UDashboardNavbar>
@@ -238,6 +245,7 @@ realtime.on('menu.item_updated', (message) => {
                   categories.length
                     ? { label: 'Ajouter un article', icon: 'i-lucide-plus', onClick: () => openItem(null) }
                     : { label: 'Créer une catégorie', icon: 'i-lucide-folder-plus', onClick: () => openCategory(null) },
+                  { label: 'Importer depuis Excel / CSV', icon: 'i-lucide-file-spreadsheet', color: 'neutral', variant: 'outline', onClick: openImport },
                 ]
               : undefined
           "

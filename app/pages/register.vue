@@ -17,7 +17,7 @@ const schema = z.object({
   email: z.email('Adresse email invalide'),
   phone: z
     .string()
-    .regex(/^\+\d{8,15}$/, 'Format international, ex. +221771234567')
+    .refine(isValidPhone, PHONE_ERROR)
     .optional()
     .or(z.literal('')),
   password: z
@@ -81,7 +81,7 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
           <UInput v-model="state.email" type="email" autocomplete="email" class="w-full" />
         </UFormField>
         <UFormField label="Téléphone" name="phone" hint="Facultatif">
-          <UInput v-model="state.phone" type="tel" placeholder="+221771234567" class="w-full" />
+          <PhoneInput v-model="state.phone" class="w-full" />
         </UFormField>
         <UFormField label="Ville" name="city">
           <UInput v-model="state.city" class="w-full" />

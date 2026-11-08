@@ -19,7 +19,7 @@ const result = ref<Invitation | null>(null);
 const sending = ref(false);
 
 const emailOk = computed(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim()));
-const phoneOk = computed(() => /^\+\d{8,15}$/.test(phone.value.trim()));
+const phoneOk = computed(() => isValidPhone(phone.value));
 const valid = computed(() => (channel.value === 'email' ? emailOk.value : phoneOk.value));
 
 const PROFILE_ITEMS = [
@@ -84,8 +84,8 @@ async function submit() {
         <UFormField v-if="channel === 'email'" label="Email" required :error="email && !emailOk ? 'Email invalide' : undefined">
           <UInput v-model="email" type="email" autofocus class="w-full" placeholder="prenom@exemple.com" />
         </UFormField>
-        <UFormField v-else label="Téléphone" required :error="phone && !phoneOk ? 'Format international, ex. +221771234567' : undefined">
-          <UInput v-model="phone" autofocus class="w-full" placeholder="+221771234567" />
+        <UFormField v-else label="Téléphone" required :error="phone && !phoneOk ? PHONE_ERROR : undefined">
+          <PhoneInput v-model="phone" autofocus class="w-full" />
         </UFormField>
         <div class="grid gap-4 sm:grid-cols-2">
           <UFormField label="Rôle">

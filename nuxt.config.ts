@@ -32,5 +32,9 @@ export default defineNuxtConfig({
     },
   },
 
+  // Lecteur Excel de l'import du menu, chargé à la demande : pré-optimisé pour
+  // éviter un rechargement de page au premier import en développement.
+  vite: { optimizeDeps: { include: ['read-excel-file/browser'] } },
+
   eslint: { config: { stylistic: false } },
 });

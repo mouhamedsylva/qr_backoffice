@@ -5,7 +5,7 @@ import type { FormSubmitEvent } from '@nuxt/ui';
 
 const { save, saving, details, canEdit } = useSettingsSave();
 
-const phone = z.union([z.literal(''), z.string().regex(/^\+\d{8,15}$/, 'Format international, ex. +221771234567')]);
+const phone = z.union([z.literal(''), z.string().refine(isValidPhone, PHONE_ERROR)]);
 const url = z.union([z.literal(''), z.url('Adresse invalide (https://…)')]);
 const schema = z.object({
   name: z.string().trim().min(2, 'Nom obligatoire').max(150),
@@ -98,7 +98,7 @@ const URL_HINT = 'https://';
           <USelectMenu v-model="state.country" :items="COUNTRIES" value-key="value" class="w-full" />
         </UFormField>
         <UFormField label="Téléphone" name="phone">
-          <UInput v-model="state.phone" class="w-full" icon="i-lucide-phone" placeholder="+221771234567" />
+          <PhoneInput v-model="state.phone" class="w-full" />
         </UFormField>
         <UFormField label="Email" name="email">
           <UInput v-model="state.email" type="email" class="w-full" icon="i-lucide-mail" />
@@ -112,7 +112,7 @@ const URL_HINT = 'https://';
           <UInput v-model="state.website" class="w-full" icon="i-lucide-globe" placeholder="https:/" />
         </UFormField>
         <UFormField label="WhatsApp" name="whatsapp">
-          <UInput v-model="state.whatsapp" class="w-full" icon="i-lucide-message-circle" placeholder="+221771234567" />
+          <PhoneInput v-model="state.whatsapp" class="w-full" />
         </UFormField>
         <UFormField label="Facebook" name="facebook">
           <UInput v-model="state.facebook" class="w-full" icon="i-lucide-facebook" :placeholder="`${URL_HINT}facebook.com/…`" />

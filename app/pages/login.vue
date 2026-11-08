@@ -10,7 +10,7 @@ const restaurant = useRestaurantStore();
 const route = useRoute();
 
 const schema = z.object({
-  email: z.email('Adresse email invalide'),
+  email: z.string().trim().pipe(z.email('Adresse email invalide')),
   password: z.string().min(1, 'Mot de passe requis'),
 });
 type Schema = z.output<typeof schema>;
@@ -19,6 +19,8 @@ const state = reactive<Partial<Schema>>({ email: '', password: '' });
 const showPassword = ref(false);
 const error = ref<string | null>(null);
 const loading = ref(false);
+// Le message d'erreur disparaît dès que l'utilisateur corrige sa saisie.
+watch(() => [state.email, state.password], () => (error.value = null));
 
 async function onSubmit(event: FormSubmitEvent<Schema>) {
   error.value = null;

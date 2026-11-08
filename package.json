@@ -20,6 +20,7 @@
     "@vueuse/core": "^14.4.0",
     "nuxt": "^4.6.4",
     "pinia": "^4.1.0",
+    "read-excel-file": "^9.3.14",
     "socket.io-client": "^4.8.4",
     "tailwindcss": "^4.3.4",
     "vue-draggable-plus": "^0.6.1",
