@@ -152,7 +152,6 @@ function itemBody(line: ImportLine, categoryId: string) {
     name: line.name,
     ...(line.description && { description: line.description }),
     priceAmount: line.priceAmount,
-    ...(line.costAmount !== undefined && { costAmount: line.costAmount }),
     ...(line.prepTimeMinutes !== undefined && { prepTimeMinutes: line.prepTimeMinutes }),
     ...(line.calories !== undefined && { calories: line.calories }),
     allergens: line.allergens,

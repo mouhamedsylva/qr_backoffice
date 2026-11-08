@@ -21,10 +21,9 @@ const schema = z.object({
   name: z.string().trim().min(1, 'Nom obligatoire').max(150),
   description: z.string().trim().max(2000).optional(),
   price: z.number({ error: 'Prix obligatoire' }).min(0, 'Prix invalide'),
-  cost: z.number().min(0).nullable(),
   prepTimeMinutes: z.number().int().min(0).max(600).nullable(),
   calories: z.number().int().min(0).nullable(),
-  imageUrl: z.union([z.literal(''), z.url('Adresse invalide (https://…)')]),
+  imageUrl: z.string(),
   isActive: z.boolean(),
   stationId: z.string().nullable(),
   allergens: z.array(z.string()),
@@ -38,7 +37,6 @@ const state = reactive<Schema>({
   name: editing?.name ?? '',
   description: editing?.description ?? '',
   price: editing ? fromMinorUnits(editing.priceAmount, currency.value) : (undefined as unknown as number),
-  cost: editing?.costAmount != null ? fromMinorUnits(editing.costAmount, currency.value) : null,
   prepTimeMinutes: editing?.prepTimeMinutes ?? null,
   calories: editing?.calories ?? null,
   imageUrl: editing?.images?.[0] ?? '',
@@ -55,12 +53,6 @@ const categoryItems = computed(() =>
     ...(c.children ?? []).map((s) => ({ label: `${c.name} › ${s.name}`, value: s.id })),
   ]),
 );
-
-// Marge indicative (MEN-02 : coût de revient).
-const margin = computed(() => {
-  if (!state.price || state.cost == null) return null;
-  return Math.round(((state.price - state.cost) / state.price) * 100);
-});
 
 const groupsValid = computed(() =>
   groups.value.every((g) => g.name.trim() && g.options.some((o) => o.name.trim()) && g.minSelect <= g.maxSelect),
@@ -85,7 +77,6 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
     name: d.name,
     description: d.description || undefined,
     priceAmount: toMinorUnits(d.price, currency.value),
-    costAmount: d.cost != null ? toMinorUnits(d.cost, currency.value) : null,
     prepTimeMinutes: d.prepTimeMinutes ?? undefined,
     calories: d.calories ?? undefined,
     images: d.imageUrl ? [d.imageUrl] : [],
@@ -113,8 +104,6 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
 function onError() {
   tab.value = 'general';
 }
-// Constante : « :// » écrit en dur dans un attribut du template perturbe vue-tsc.
-const URL_HINT = 'https://';
 </script>
 
 <template>
@@ -143,19 +132,6 @@ const URL_HINT = 'https://';
                 :format-options="{ style: 'currency', currency, currencyDisplay: 'narrowSymbol', maximumFractionDigits: fractionDigits(currency) }"
               />
             </UFormField>
-            <UFormField
-              label="Coût de revient"
-              name="cost"
-              :hint="margin !== null ? `Marge ${margin} %` : 'Facultatif'"
-              :help="'Visible uniquement par l\'équipe.'"
-            >
-              <UInputNumber
-                v-model="state.cost"
-                :min="0"
-                class="w-full"
-                :format-options="{ style: 'currency', currency, currencyDisplay: 'narrowSymbol', maximumFractionDigits: fractionDigits(currency) }"
-              />
-            </UFormField>
             <UFormField label="Temps de préparation" name="prepTimeMinutes" hint="minutes">
               <UInputNumber v-model="state.prepTimeMinutes" :min="0" :max="600" class="w-full" />
             </UFormField>
@@ -163,11 +139,8 @@ const URL_HINT = 'https://';
           <UFormField label="Description" name="description">
             <UTextarea v-model="state.description" :rows="3" class="w-full" placeholder="Ingrédients, préparation…" />
           </UFormField>
-          <UFormField label="Photo" name="imageUrl" help="Adresse d'une image en ligne (l'envoi de fichiers arrivera avec le stockage).">
-            <div class="flex items-center gap-3">
-              <UInput v-model="state.imageUrl" class="flex-1" :placeholder="URL_HINT" icon="i-lucide-image" />
-              <img v-if="state.imageUrl" :src="state.imageUrl" alt="" class="size-10 rounded object-cover" >
-            </div>
+          <UFormField label="Photo" name="imageUrl" help="Affichée au client sur le menu ; elle est automatiquement allégée pour un chargement rapide.">
+            <ImageUpload v-model="state.imageUrl" :endpoint="`${restaurant.base}/menu/images`" />
           </UFormField>
           <UFormField v-if="stations.length" label="Poste de cuisine" name="stationId" help="Prioritaire sur le poste de la catégorie.">
             <USelect v-model="state.stationId" :items="stationItems" class="w-full sm:w-64" />

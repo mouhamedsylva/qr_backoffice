@@ -18,7 +18,6 @@ export const COLUMNS = {
   name: { label: 'nom', aliases: ['nom', 'name', 'plat', 'article', 'produit', 'intitule'], required: true },
   description: { label: 'description', aliases: ['description', 'desc', 'details'], required: false },
   price: { label: 'prix', aliases: ['prix', 'price', 'tarif', 'prixdevente'], required: true },
-  cost: { label: 'cout', aliases: ['cout', 'cost', 'coutderevient', 'prixdachat'], required: false },
   available: { label: 'disponible', aliases: ['disponible', 'available', 'dispo', 'enstock'], required: false },
   prepTime: { label: 'temps_preparation', aliases: ['tempspreparation', 'preparation', 'tempsdepreparation', 'preptime', 'duree'], required: false },
   calories: { label: 'calories', aliases: ['calories', 'kcal'], required: false },
@@ -160,7 +159,6 @@ export interface ImportLine {
   name: string;
   description: string;
   priceAmount: number;
-  costAmount?: number;
   isAvailable: boolean;
   prepTimeMinutes?: number;
   calories?: number;
@@ -226,10 +224,6 @@ export function parseSheet(rows: Cell[][], currency: string): ParsedSheet {
     const price = parsePrice(priceCell, currency);
     if (price === null) errors.push(text(priceCell) ? `Prix illisible : « ${text(priceCell)} »` : 'Prix manquant');
 
-    const costCell = get(r, 'cost');
-    const cost = text(costCell) ? parsePrice(costCell, currency) : undefined;
-    if (cost === null) warnings.push('Coût illisible, ignoré');
-
     let isAvailable = parseAvailable(get(r, 'available'));
     if (isAvailable === null) {
       warnings.push(`Disponibilité « ${text(get(r, 'available'))} » non reconnue : article disponible`);
@@ -268,7 +262,6 @@ export function parseSheet(rows: Cell[][], currency: string): ParsedSheet {
       name,
       description: text(get(r, 'description')).slice(0, 2000),
       priceAmount: price ?? 0,
-      ...(typeof cost === 'number' && { costAmount: cost }),
       isAvailable,
       ...(prepTimeMinutes !== undefined && { prepTimeMinutes }),
       ...(calories !== undefined && { calories }),

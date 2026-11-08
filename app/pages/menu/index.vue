@@ -303,9 +303,6 @@ realtime.on('menu.item_updated', (message) => {
 
             <div class="w-24 text-right">
               <p class="tabular font-semibold text-highlighted">{{ money(item.priceAmount) }}</p>
-              <p v-if="item.costAmount && canManage" class="tabular text-xs text-muted">
-                marge {{ Math.round(((item.priceAmount - item.costAmount) / item.priceAmount) * 100) }} %
-              </p>
             </div>
 
             <UDropdownMenu v-if="canManage" :items="itemMenu(item)" :content="{ align: 'end' }">

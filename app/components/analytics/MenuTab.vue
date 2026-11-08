@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** Performance du menu : meilleures ventes, plats délaissés, marges (ANA-02). */
+/** Performance du menu : meilleures ventes et plats délaissés (ANA-02). */
 import type { TableColumn } from '@nuxt/ui';
 import type { MenuPerformance, MenuPerformanceRow } from '~/types/api';
 
@@ -9,7 +9,6 @@ const { money } = useMoney();
 const blocks = computed(() => [
   { title: 'Meilleures ventes', icon: 'i-lucide-trophy', list: props.data?.bestSellers ?? [], kind: 'best' },
   { title: 'Les moins vendus', icon: 'i-lucide-trending-down', list: props.data?.leastSold ?? [], kind: 'least' },
-  { title: 'Marges les plus faibles', icon: 'i-lucide-scale', list: props.data?.lowestMargin ?? [], kind: 'margin' },
 ]);
 
 const search = ref('');
@@ -33,29 +32,25 @@ const columns: TableColumn<MenuPerformanceRow>[] = [
   { accessorKey: 'category', header: sortHeader('Catégorie') },
   { accessorKey: 'quantity', header: sortHeader('Vendus', true) },
   { accessorKey: 'revenue', header: sortHeader('Chiffre d\'affaires', true) },
-  { accessorKey: 'marginRate', header: sortHeader('Marge', true), sortUndefined: 'last' },
 ];
-
-const marginColor = (rate: number | null) => (rate === null ? 'text-dimmed' : rate < 50 ? 'text-error' : rate < 65 ? 'text-warning' : 'text-success');
 </script>
 
 <template>
   <div class="space-y-6">
-    <div class="grid gap-4 lg:grid-cols-3">
+    <div class="grid gap-4 lg:grid-cols-2">
       <UCard v-for="block in blocks" :key="block.kind">
         <template #header>
           <p class="flex items-center gap-2 font-semibold text-highlighted"><UIcon :name="block.icon" class="text-primary" /> {{ block.title }}</p>
         </template>
         <USkeleton v-if="loading && !data" class="h-40 w-full" />
         <p v-else-if="!block.list.length" class="text-sm text-muted">
-          {{ block.kind === 'margin' ? 'Renseignez le coût de revient de vos plats pour suivre les marges.' : 'Pas de données.' }}
+          Pas de données.
         </p>
         <ol v-else class="space-y-2">
           <li v-for="(r, i) in block.list.slice(0, 5)" :key="r.menuItemId" class="flex items-center gap-2 text-sm">
             <span class="tabular w-4 text-muted">{{ i + 1 }}</span>
             <span class="min-w-0 flex-1 truncate">{{ r.name }}</span>
-            <span v-if="block.kind === 'margin'" class="tabular font-medium" :class="marginColor(r.marginRate)">{{ r.marginRate }} %</span>
-            <span v-else class="tabular font-medium">{{ r.quantity }} vendu{{ r.quantity > 1 ? 's' : '' }}</span>
+            <span class="tabular font-medium">{{ r.quantity }} vendu{{ r.quantity > 1 ? 's' : '' }}</span>
           </li>
         </ol>
       </UCard>
@@ -82,11 +77,6 @@ const marginColor = (rate: number | null) => (rate === null ? 'text-dimmed' : ra
             </div>
             <span class="tabular">{{ money(row.original.revenue) }}</span>
           </div>
-        </template>
-        <template #marginRate-cell="{ row }">
-          <span class="tabular block text-right font-medium" :class="marginColor(row.original.marginRate)">
-            {{ row.original.marginRate === null ? '—' : `${row.original.marginRate} %` }}
-          </span>
         </template>
         <template #empty>
           <p class="py-8 text-center text-sm text-muted">Aucun article.</p>
