@@ -163,6 +163,88 @@ function itemMenu(item: MenuItem): DropdownMenuItem[][] {
   ];
 }
 
+// --- Sélection multiple : masquer, afficher ou supprimer d'un coup ---
+const checkedIds = ref<string[]>([]);
+const isChecked = (id: string) => checkedIds.value.includes(id);
+const pageIds = computed(() => items.value.map((i) => i.id));
+const allPageChecked = computed(() => pageIds.value.length > 0 && pageIds.value.every(isChecked));
+const pageCheckState = computed<boolean | 'indeterminate'>(() =>
+  allPageChecked.value ? true : pageIds.value.some(isChecked) ? 'indeterminate' : false,
+);
+const totalMatching = computed(() => itemsPage.value?.meta.total ?? 0);
+// Changer de catégorie ou de recherche vide la sélection (elle reste d'une page à l'autre).
+watch([selected, searchDebounced], () => (checkedIds.value = []));
+
+function toggleChecked(id: string) {
+  checkedIds.value = isChecked(id) ? checkedIds.value.filter((x) => x !== id) : [...checkedIds.value, id];
+}
+
+function togglePage() {
+  const ids = new Set(pageIds.value);
+  checkedIds.value = allPageChecked.value
+    ? checkedIds.value.filter((id) => !ids.has(id))
+    : [...new Set([...checkedIds.value, ...pageIds.value])];
+}
+
+/** Tous les articles correspondant au filtre en cours, toutes pages confondues. */
+const selectingAll = ref(false);
+async function selectAllMatching() {
+  selectingAll.value = true;
+  try {
+    const ids: string[] = [];
+    for (let p = 1; ; p++) {
+      const res = await api<Paginated<MenuItem>>(`${restaurant.base}/menu/items`, {
+        query: {
+          page: p,
+          limit: 100,
+          ...(selected.value && { categoryId: selected.value }),
+          ...(searchDebounced.value.trim() && { search: searchDebounced.value.trim() }),
+        },
+      });
+      ids.push(...res.data.map((i) => i.id));
+      if (p >= res.meta.totalPages) break;
+    }
+    checkedIds.value = ids;
+  } catch {
+    // erreur déjà notifiée
+  } finally {
+    selectingAll.value = false;
+  }
+}
+
+const bulkRunning = ref<'hide' | 'show' | 'delete' | null>(null);
+async function bulk(action: 'hide' | 'show' | 'delete') {
+  const n = checkedIds.value.length;
+  if (action === 'delete') {
+    const ok = await confirmModal.open({
+      title: `Supprimer ${n} article${n > 1 ? 's' : ''} ?`,
+      description: 'Ils disparaissent du menu. Les commandes passées restent dans l\'historique.',
+      confirmLabel: 'Supprimer',
+    });
+    if (!ok) return;
+  }
+  bulkRunning.value = action;
+  try {
+    const res = await api<{ count: number }>(`${restaurant.base}/menu/items/bulk`, {
+      method: 'POST',
+      body: { action, ids: checkedIds.value },
+    });
+    const s = res.count > 1 ? 's' : '';
+    const done = { hide: `masqué${s} du menu`, show: `affiché${s} sur le menu`, delete: `supprimé${s}` }[action];
+    toast.add({
+      title: `${res.count} article${s} ${done}`,
+      color: 'success',
+      icon: action === 'delete' ? 'i-lucide-trash-2' : action === 'hide' ? 'i-lucide-eye-off' : 'i-lucide-eye',
+    });
+    checkedIds.value = [];
+    await Promise.all([refreshItems(), refreshCategories()]);
+  } catch {
+    // erreur déjà notifiée
+  } finally {
+    bulkRunning.value = null;
+  }
+}
+
 // Disponibilités modifiées ailleurs (cuisine, autre poste) : mise à jour en direct.
 realtime.on('menu.item_updated', (message) => {
   const payload = message.payload as Partial<MenuItem> & { id: string };
@@ -207,6 +289,13 @@ realtime.on('menu.item_updated', (message) => {
         </UDashboardNavbar>
         <UDashboardToolbar>
           <template #left>
+            <UCheckbox
+              v-if="canManage && items.length"
+              :model-value="pageCheckState"
+              :aria-label="allPageChecked ? 'Désélectionner les articles de la page' : 'Sélectionner les articles de la page'"
+              class="ml-1 sm:ml-2"
+              @update:model-value="togglePage"
+            />
             <UInput v-model="search" icon="i-lucide-search" placeholder="Rechercher un article…" class="w-full sm:w-64" />
             <USelectMenu
               v-model="selected"
@@ -224,6 +313,58 @@ realtime.on('menu.item_updated', (message) => {
       </template>
 
       <template #body>
+        <!-- Actions sur la sélection -->
+        <div
+          v-if="checkedIds.length"
+          class="sticky top-0 z-10 mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 backdrop-blur"
+        >
+          <span class="text-sm font-medium text-highlighted">
+            {{ checkedIds.length }} article{{ checkedIds.length > 1 ? 's' : '' }} sélectionné{{ checkedIds.length > 1 ? 's' : '' }}
+          </span>
+          <UButton
+            v-if="allPageChecked && checkedIds.length < totalMatching"
+            size="sm"
+            color="primary"
+            variant="link"
+            :label="`Sélectionner les ${totalMatching} articles`"
+            :loading="selectingAll"
+            @click="selectAllMatching"
+          />
+          <div class="ml-auto flex flex-wrap gap-2">
+            <UButton
+              size="sm"
+              color="neutral"
+              variant="outline"
+              icon="i-lucide-eye-off"
+              label="Masquer du menu"
+              :loading="bulkRunning === 'hide'"
+              :disabled="!!bulkRunning"
+              @click="bulk('hide')"
+            />
+            <UButton
+              size="sm"
+              color="neutral"
+              variant="outline"
+              icon="i-lucide-eye"
+              label="Afficher sur le menu"
+              :loading="bulkRunning === 'show'"
+              :disabled="!!bulkRunning"
+              @click="bulk('show')"
+            />
+            <UButton
+              size="sm"
+              color="error"
+              variant="soft"
+              icon="i-lucide-trash-2"
+              label="Supprimer"
+              :loading="bulkRunning === 'delete'"
+              :disabled="!!bulkRunning"
+              @click="bulk('delete')"
+            />
+            <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-x" aria-label="Tout désélectionner" @click="checkedIds = []" />
+          </div>
+        </div>
+
         <div v-if="itemsStatus === 'pending' && !items.length" class="space-y-2">
           <USkeleton v-for="n in 6" :key="n" class="h-20 w-full" />
         </div>
@@ -266,8 +407,15 @@ realtime.on('menu.item_updated', (message) => {
           <li
             v-for="item in items"
             :key="item.id"
-            class="group flex items-center gap-3 bg-default px-3 py-3 transition hover:bg-elevated/40 sm:gap-4 sm:px-4"
+            class="group flex items-center gap-3 px-3 py-3 transition sm:gap-4 sm:px-4"
+            :class="isChecked(item.id) ? 'bg-primary/5' : 'bg-default hover:bg-elevated/40'"
           >
+            <UCheckbox
+              v-if="canManage"
+              :model-value="isChecked(item.id)"
+              :aria-label="`Sélectionner ${item.name}`"
+              @update:model-value="toggleChecked(item.id)"
+            />
             <UIcon
               v-if="canReorder"
               name="i-lucide-grip-vertical"

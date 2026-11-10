@@ -4,7 +4,17 @@
  * Le fichier part tout de suite à l'API, qui le recompresse ; le v-model reçoit
  * l'URL publique de la photo ('' si aucune).
  */
-const props = withDefaults(defineProps<{ endpoint: string; disabled?: boolean }>(), { disabled: false });
+const props = withDefaults(
+  defineProps<{
+    endpoint: string;
+    /** Paramètres ajoutés à l'URL d'envoi (ex. { kind: 'logo' }). */
+    query?: Record<string, string>;
+    /** Forme de l'aperçu : photo de plat, logo carré ou bannière large. */
+    variant?: 'photo' | 'logo' | 'banner';
+    disabled?: boolean;
+  }>(),
+  { query: undefined, variant: 'photo', disabled: false },
+);
 const model = defineModel<string>({ default: '' });
 
 const api = useApi();
@@ -33,7 +43,7 @@ async function send(file: File) {
   try {
     const body = new FormData();
     body.append('file', file);
-    const res = await api<{ url: string }>(props.endpoint, { method: 'POST', body, silent: true });
+    const res = await api<{ url: string }>(props.endpoint, { method: 'POST', body, query: props.query, silent: true });
     model.value = res.url;
   } catch (err) {
     error.value = apiErrorMessage(err);
@@ -61,6 +71,13 @@ function pick() {
 }
 
 const shown = computed(() => preview.value ?? model.value);
+const PREVIEW_CLASS = {
+  photo: 'size-28 rounded-lg',
+  logo: 'size-24 rounded-xl',
+  banner: 'aspect-[8/3] w-full max-w-md rounded-lg',
+} as const;
+const LABEL = { photo: 'Ajouter une photo', logo: 'Ajouter le logo', banner: 'Ajouter la bannière' } as const;
+const CHANGE = { photo: 'Changer la photo', logo: 'Changer le logo', banner: 'Changer la bannière' } as const;
 </script>
 
 <template>
@@ -68,20 +85,20 @@ const shown = computed(() => preview.value ?? model.value);
     <input ref="input" type="file" :accept="ACCEPT" class="hidden" @change="onPick">
 
     <!-- Photo en place -->
-    <div v-if="shown" class="flex items-center gap-4">
-      <div class="relative size-28 shrink-0 overflow-hidden rounded-lg border border-default bg-elevated">
-        <img :src="shown" alt="Photo du plat" class="size-full object-cover">
+    <div v-if="shown" class="flex items-center gap-4" :class="variant === 'banner' && 'flex-col items-start sm:flex-row sm:items-center'">
+      <div class="relative shrink-0 overflow-hidden border border-default bg-elevated" :class="PREVIEW_CLASS[variant]">
+        <img :src="shown" alt="" class="size-full object-cover">
         <div v-if="uploading" class="absolute inset-0 flex items-center justify-center bg-black/40">
           <UIcon name="i-lucide-loader-circle" class="size-7 animate-spin text-white" />
         </div>
       </div>
-      <div class="flex flex-col gap-2">
+      <div class="flex gap-2" :class="variant === 'banner' ? 'flex-row sm:flex-col' : 'flex-col'">
         <UButton
           color="neutral"
           variant="outline"
           size="sm"
           icon="i-lucide-refresh-cw"
-          label="Changer la photo"
+          :label="CHANGE[variant]"
           :disabled="disabled || uploading"
           @click="pick"
         />
@@ -113,7 +130,7 @@ const shown = computed(() => preview.value ?? model.value);
       @drop.prevent="onDrop"
     >
       <UIcon name="i-lucide-image-plus" class="size-7 text-muted" />
-      <span class="text-sm font-medium text-highlighted">Ajouter une photo</span>
+      <span class="text-sm font-medium text-highlighted">{{ LABEL[variant] }}</span>
       <span class="text-xs text-muted">Cliquez ou glissez une image · JPEG, PNG ou WebP · 10 Mo max</span>
     </button>
 

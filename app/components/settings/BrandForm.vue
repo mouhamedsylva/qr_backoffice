@@ -3,6 +3,8 @@
 import { AA_CONTRAST, contrastRatio, generatePalette, SHADES } from '~/utils/palette';
 
 const { save, saving, details, canEdit } = useSettingsSave();
+const restaurant = useRestaurantStore();
+const imagesEndpoint = computed(() => `${restaurant.base}/branding/images`);
 
 /** Couleur par défaut de QR-Order (terracotta 500). */
 const DEFAULT_PRIMARY = '#cc4a12';
@@ -35,8 +37,7 @@ const palette = computed(() => (validHex.value ? generatePalette(state.primary) 
 const rawContrast = computed(() => (validHex.value ? contrastRatio(state.primary, '#ffffff') : 0));
 const adjusted = computed(() => !!palette.value && palette.value[500].toLowerCase() !== state.primary.toLowerCase());
 
-const urlError = (v: string) => (v && !/^https?:\/\/\S+$/.test(v) ? 'Adresse invalide (https://…)' : undefined);
-const valid = computed(() => validHex.value && !urlError(state.logoUrl) && !urlError(state.bannerUrl));
+const valid = computed(() => validHex.value);
 
 async function submit() {
   if (!valid.value) return;
@@ -45,14 +46,13 @@ async function submit() {
     {
       brandColors: state.useBrand ? { primary: state.primary.toLowerCase() } : {},
       menuTheme: state.menuTheme,
-      ...(state.logoUrl && { logoUrl: state.logoUrl }),
-      ...(state.bannerUrl && { bannerUrl: state.bannerUrl }),
+      // null : logo ou bannière retiré(e).
+      logoUrl: state.logoUrl || null,
+      bannerUrl: state.bannerUrl || null,
     },
     'Identité visuelle mise à jour',
   );
 }
-// Constante : « :// » écrit en dur dans un attribut du template perturbe vue-tsc.
-const URL_HINT = 'https://';
 </script>
 
 <template>
@@ -123,17 +123,17 @@ const URL_HINT = 'https://';
       </div>
     </UPageCard>
 
-    <UPageCard title="Images" description="Adresses d'images en ligne (l'envoi de fichiers arrivera avec le stockage)." variant="subtle">
-      <div class="grid gap-4 sm:grid-cols-2">
-        <UFormField label="Logo" :error="urlError(state.logoUrl)" help="Carré, 512 × 512 px conseillé.">
-          <div class="flex items-center gap-3">
-            <UAvatar :src="state.logoUrl || undefined" :alt="details?.name" size="lg" />
-            <UInput v-model="state.logoUrl" :disabled="!canEdit" class="flex-1" :placeholder="URL_HINT" />
-          </div>
+    <UPageCard
+      title="Images"
+      description="Envoyées depuis votre ordinateur ou votre téléphone, puis allégées automatiquement. Pensez à enregistrer."
+      variant="subtle"
+    >
+      <div class="grid gap-6 sm:grid-cols-[auto_1fr]">
+        <UFormField label="Logo" help="Carré de préférence.">
+          <ImageUpload v-model="state.logoUrl" :endpoint="imagesEndpoint" :query="{ kind: 'logo' }" variant="logo" :disabled="!canEdit" />
         </UFormField>
-        <UFormField label="Bannière du menu" :error="urlError(state.bannerUrl)" help="Paysage, 1600 × 600 px conseillé.">
-          <UInput v-model="state.bannerUrl" :disabled="!canEdit" class="w-full" :placeholder="URL_HINT" />
-          <img v-if="state.bannerUrl && !urlError(state.bannerUrl)" :src="state.bannerUrl" alt="" class="mt-2 h-20 w-full rounded-md object-cover" >
+        <UFormField label="Bannière du menu" help="Format paysage, environ 1600 × 600 px.">
+          <ImageUpload v-model="state.bannerUrl" :endpoint="imagesEndpoint" :query="{ kind: 'banner' }" variant="banner" :disabled="!canEdit" />
         </UFormField>
       </div>
     </UPageCard>

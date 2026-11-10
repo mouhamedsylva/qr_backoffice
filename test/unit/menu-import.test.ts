@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { Category } from '~/types/api';
-import { buildPlan, parseAvailable, parseCodes, parseCsv, parsePrice, parseSheet, templateCsv } from '~/utils/menu-import';
+import {
+  buildPlan,
+  fileKey,
+  matchImageFiles,
+  parseAvailable,
+  parseCodes,
+  parseCsv,
+  parsePrice,
+  parseSheet,
+  templateCsv,
+} from '~/utils/menu-import';
 import { ALLERGENS } from '~/utils/menu';
 
 describe('lecture CSV', () => {
@@ -61,7 +71,7 @@ describe('feuille', () => {
       [
         ['categorie', 'sous_categorie', 'nom', 'prix', 'disponible', 'allergenes', 'temps_preparation', 'image', 'couleur'],
         ['Plats', '', 'Thiéb', '3 500', 'oui', 'Poisson', '25 min', '', 'x'],
-        ['Plats', 'Grillades', 'Dibi', '5000', 'non', '', '', 'pas-une-url', ''],
+        ['Plats', 'Grillades', 'Dibi', '5000', 'non', '', '', 'www.exemple.com/dibi.jpg', ''],
         ['', '', 'Sans catégorie', '1000', '', '', '', '', ''],
         ['Boissons', '', 'Bissap', 'cher', '', 'Fromage', '', '', ''],
         ['Plats', '', 'thieb', '3500', '', '', '', '', ''],
@@ -71,7 +81,7 @@ describe('feuille', () => {
     expect(sheet.ignoredColumns).toEqual(['couleur']);
     const [thieb, dibi, noCat, bissap, dup] = sheet.lines;
     expect(thieb).toMatchObject({ row: 2, priceAmount: 3500, isAvailable: true, allergens: ['FISH'], prepTimeMinutes: 25, errors: [] });
-    expect(dibi).toMatchObject({ subcategory: 'Grillades', isAvailable: false, images: [] });
+    expect(dibi).toMatchObject({ subcategory: 'Grillades', isAvailable: false, image: null });
     expect(dibi!.warnings[0]).toMatch(/image/);
     expect(noCat!.errors).toEqual(['Catégorie manquante']);
     expect(bissap!.errors).toEqual(['Prix illisible : « cher »']);
@@ -112,5 +122,58 @@ describe('plan d’import', () => {
       { name: 'Boissons', parent: null },
       { name: 'Jus', parent: 'Boissons' },
     ]);
+  });
+});
+
+describe('photos', () => {
+  const sheet = parseSheet(
+    [
+      ['categorie', 'nom', 'prix', 'image'],
+      ['Plats', 'Yassa', '3000', 'https://exemple.com/yassa.jpg'],
+      ['Plats', 'Thiéb', '3500', 'Thiéb Rouge.JPG'],
+      ['Plats', 'Mafé', '3500', 'mafe'],
+      ['Plats', 'Dibi', '5000', 'dibi.png'],
+      ['Plats', 'Bissap', '1000', ''],
+    ],
+    'XOF',
+  );
+
+  it('distingue lien et nom de fichier', () => {
+    expect(sheet.lines.map((l) => l.image)).toEqual([
+      { kind: 'url', url: 'https://exemple.com/yassa.jpg' },
+      { kind: 'file', name: 'Thiéb Rouge.JPG' },
+      { kind: 'file', name: 'mafe' },
+      { kind: 'file', name: 'dibi.png' },
+      null,
+    ]);
+  });
+
+  it('associe les fichiers sans tenir compte de la casse, des accents ni de l’extension', () => {
+    expect(fileKey('C:/photos/Thiéb_Rouge.jpeg')).toBe('thieb rouge');
+    const match = matchImageFiles(sheet.lines, ['thieb-rouge.jpg', 'Mafé.webp', 'inutile.png']);
+    expect(Object.fromEntries(match.byRow)).toEqual({ 3: 'thieb-rouge.jpg', 4: 'Mafé.webp' });
+    expect(match.missing).toEqual([{ row: 5, name: 'dibi.png' }]);
+    expect(match.unused).toEqual(['inutile.png']);
+  });
+
+  it('ajoute une photo aux plats existants qui n’en ont pas', () => {
+    const cats: Category[] = [{ id: 'c', parentId: null, name: 'Plats', description: null, isActive: true, position: 0, itemsCount: 2 }];
+    const plan = buildPlan(
+      sheet.lines,
+      cats,
+      new Map([
+        [
+          'c',
+          [
+            { id: 'i-yassa', name: 'Yassa', hasImage: false },
+            { id: 'i-thieb', name: 'Thiéb', hasImage: true },
+            { id: 'i-bissap', name: 'Bissap', hasImage: false },
+          ],
+        ],
+      ]),
+    );
+    expect(plan.existing.map((l) => l.itemId)).toEqual(['i-yassa', 'i-thieb', 'i-bissap']);
+    // Thiéb a déjà une photo, Bissap n'en a pas dans le fichier.
+    expect(plan.photosToAdd.map((l) => l.itemId)).toEqual(['i-yassa']);
   });
 });

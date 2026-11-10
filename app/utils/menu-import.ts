@@ -23,7 +23,7 @@ export const COLUMNS = {
   calories: { label: 'calories', aliases: ['calories', 'kcal'], required: false },
   allergens: { label: 'allergenes', aliases: ['allergenes', 'allergens', 'allergene'], required: false },
   dietary: { label: 'regimes', aliases: ['regimes', 'regime', 'tags', 'dietary', 'labels'], required: false },
-  image: { label: 'image', aliases: ['image', 'photo', 'imageurl', 'urlimage', 'urlphoto'], required: false },
+  image: { label: 'image', aliases: ['image', 'photo', 'imageurl', 'urlimage', 'urlphoto', 'fichierimage', 'fichierphoto'], required: false },
 } as const;
 export type ColumnKey = keyof typeof COLUMNS;
 
@@ -151,6 +151,9 @@ const DIETARY_LABELS = Object.fromEntries(Object.entries(DIETARY_TAGS).map(([k, 
 
 // ───────────────────────── Lignes ─────────────────────────
 
+/** Photo d'un plat dans le fichier : lien (https, Google Drive, Dropbox) ou nom d'un fichier déposé avec le tableau. */
+export type ImageRef = { kind: 'url'; url: string } | { kind: 'file'; name: string };
+
 export interface ImportLine {
   /** Numéro de ligne dans le fichier (en-tête = 1). */
   row: number;
@@ -164,7 +167,7 @@ export interface ImportLine {
   calories?: number;
   allergens: string[];
   dietaryTags: string[];
-  images: string[];
+  image: ImageRef | null;
   /** Bloquant : la ligne ne sera pas importée. */
   errors: string[];
   /** Non bloquant : la valeur concernée est ignorée. */
@@ -246,9 +249,11 @@ export function parseSheet(rows: Cell[][], currency: string): ParsedSheet {
     const dietary = parseCodes(get(r, 'dietary'), DIETARY_LABELS);
     if (dietary.unknown.length) warnings.push(`Régime(s) non reconnu(s) : ${dietary.unknown.join(', ')}`);
 
-    const image = text(get(r, 'image'));
-    const images = /^https?:\/\/\S+$/i.test(image) ? [image] : [];
-    if (image && !images.length) warnings.push('Lien d’image invalide (http… attendu), ignoré');
+    const imageCell = text(get(r, 'image'));
+    let image: ImageRef | null = null;
+    if (/^https?:\/\/\S+$/i.test(imageCell)) image = { kind: 'url', url: imageCell };
+    else if (/^(www\.|https?:)/i.test(imageCell)) warnings.push('Lien d’image invalide (https://… attendu), ignoré');
+    else if (imageCell) image = { kind: 'file', name: imageCell.slice(0, 255) };
 
     // Même plat deux fois dans la même catégorie du fichier.
     const key = [category, subcategory, name].map(normalizeKey).join('|');
@@ -267,13 +272,60 @@ export function parseSheet(rows: Cell[][], currency: string): ParsedSheet {
       ...(calories !== undefined && { calories }),
       allergens: allergens.codes,
       dietaryTags: dietary.codes,
-      images,
+      image,
       errors,
       warnings,
     });
   });
 
   return { lines, missingColumns: [], ignoredColumns: ignored, truncated: body.length > MAX_IMPORT_ROWS };
+}
+
+// ───────────────────────── Photos déposées ─────────────────────────
+
+/** « Thiéb Rouge.JPG » → « thieb rouge » : casse, accents et extension ignorés. */
+export function fileKey(name: string): string {
+  return name
+    .split(/[\\/]/)
+    .pop()!
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\.(jpe?g|png|webp|avif|heic|heif|gif)$/i, '')
+    .replace(/[\s_-]+/g, ' ')
+    .trim();
+}
+
+export interface FileMatch {
+  /** Ligne du tableau → nom du fichier déposé correspondant. */
+  byRow: Map<number, string>;
+  /** Noms indiqués dans le tableau sans fichier correspondant. */
+  missing: { row: number; name: string }[];
+  /** Fichiers déposés qu'aucune ligne n'utilise. */
+  unused: string[];
+}
+
+/** Associe la colonne image (noms de fichiers) aux photos déposées avec le tableau. */
+export function matchImageFiles(lines: ImportLine[], fileNames: string[]): FileMatch {
+  const byKey = new Map<string, string>();
+  for (const f of fileNames) {
+    const key = fileKey(f);
+    if (!byKey.has(key)) byKey.set(key, f);
+  }
+  const used = new Set<string>();
+  const byRow = new Map<number, string>();
+  const missing: { row: number; name: string }[] = [];
+  for (const line of lines) {
+    if (line.image?.kind !== 'file') continue;
+    const file = byKey.get(fileKey(line.image.name));
+    if (file) {
+      byRow.set(line.row, file);
+      used.add(file);
+    } else {
+      missing.push({ row: line.row, name: line.image.name });
+    }
+  }
+  return { byRow, missing, unused: fileNames.filter((f) => !used.has(f)) };
 }
 
 // ───────────────────────── Plan d'import ─────────────────────────
@@ -289,6 +341,8 @@ export interface ImportPlan {
   items: ImportLine[];
   /** Plats déjà présents dans la même catégorie : ignorés, ou mis à jour sur demande. */
   existing: (ImportLine & { itemId: string })[];
+  /** Plats déjà présents sans photo, pour lesquels le fichier en fournit une (ajout non destructif). */
+  photosToAdd: (ImportLine & { itemId: string })[];
   invalid: ImportLine[];
 }
 
@@ -306,9 +360,9 @@ export function findCategory(categories: Category[], name: string, parent: strin
 export function buildPlan(
   lines: ImportLine[],
   categories: Category[],
-  existingItems: Map<string, { id: string; name: string }[]>,
+  existingItems: Map<string, { id: string; name: string; hasImage?: boolean }[]>,
 ): ImportPlan {
-  const plan: ImportPlan = { categories: [], items: [], existing: [], invalid: [] };
+  const plan: ImportPlan = { categories: [], items: [], existing: [], photosToAdd: [], invalid: [] };
   const planned = (name: string, parent: string | null) =>
     plan.categories.some((c) => sameName(c.name, name) && (c.parent === parent || (!!c.parent && !!parent && sameName(c.parent, parent))));
 
@@ -325,8 +379,12 @@ export function buildPlan(
     }
     const target = findCategory(categories, line.subcategory || line.category, line.subcategory ? line.category : null);
     const match = target ? (existingItems.get(target.id) ?? []).find((i) => sameName(i.name, line.name)) : undefined;
-    if (match) plan.existing.push({ ...line, itemId: match.id });
-    else plan.items.push(line);
+    if (match) {
+      plan.existing.push({ ...line, itemId: match.id });
+      if (line.image && !match.hasImage) plan.photosToAdd.push({ ...line, itemId: match.id });
+    } else {
+      plan.items.push(line);
+    }
   }
   return plan;
 }

@@ -3,6 +3,8 @@
  * Import du menu depuis un fichier CSV ou Excel (.xlsx) : une ligne par plat.
  * Étapes : choix du fichier → aperçu vérifié ligne par ligne → création des
  * catégories manquantes puis des plats, avec progression → bilan.
+ * Photos : la colonne « image » contient un lien ou le nom d'un fichier déposé
+ * avec le tableau ; chaque photo est récupérée et hébergée par QR-Order.
  */
 import type { Category, MenuItem, Paginated } from '~/types/api';
 import { downloadBlob } from '~/utils/download';
@@ -13,6 +15,7 @@ import {
   findCategory,
   type ImportLine,
   type ImportPlan,
+  matchImageFiles,
   MAX_IMPORT_ROWS,
   parseCsv,
   parseSheet,
@@ -35,6 +38,9 @@ const readError = ref<string | null>(null);
 const sheet = ref<ParsedSheet | null>(null);
 const plan = ref<ImportPlan | null>(null);
 const updateExisting = ref(false);
+/** Photos déposées avec le tableau (colonne « image » = nom de fichier). */
+const photoFiles = ref<File[] | null>(null);
+const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
 
 // ─── Lecture du fichier ───
 async function readRows(f: File): Promise<Cell[][]> {
@@ -48,10 +54,13 @@ async function readRows(f: File): Promise<Cell[][]> {
 
 /** Plats déjà au menu, par catégorie (toutes les pages). */
 async function existingItems() {
-  const byCategory = new Map<string, { id: string; name: string }[]>();
+  const byCategory = new Map<string, { id: string; name: string; hasImage: boolean }[]>();
   for (let page = 1; ; page++) {
     const res = await api<Paginated<MenuItem>>(`${restaurant.base}/menu/items`, { query: { page, limit: 100 } });
-    for (const item of res.data) byCategory.set(item.categoryId, [...(byCategory.get(item.categoryId) ?? []), { id: item.id, name: item.name }]);
+    for (const item of res.data) {
+      const entry = { id: item.id, name: item.name, hasImage: !!item.images?.length };
+      byCategory.set(item.categoryId, [...(byCategory.get(item.categoryId) ?? []), entry]);
+    }
     if (page >= res.meta.totalPages) break;
   }
   return byCategory;
@@ -93,6 +102,7 @@ function downloadTemplate() {
 
 function restart() {
   file.value = null;
+  photoFiles.value = null;
   sheet.value = null;
   plan.value = null;
   step.value = 'file';
@@ -113,6 +123,35 @@ const visibleRows = computed(() =>
   filter.value === 'all' ? rows.value : rows.value.filter((r) => r.status === 'invalid' || r.warnings.length),
 );
 const warningCount = computed(() => rows.value.filter((r) => r.status !== 'invalid' && r.warnings.length).length);
+// ─── Photos ───
+const photoList = computed(() => (photoFiles.value ?? []).filter((f) => f.type.startsWith('image/') && f.size <= MAX_PHOTO_BYTES));
+const rejectedPhotos = computed(() => (photoFiles.value ?? []).filter((f) => !f.type.startsWith('image/') || f.size > MAX_PHOTO_BYTES));
+const fileMatch = computed(() => matchImageFiles(sheet.value?.lines ?? [], photoList.value.map((f) => f.name)));
+/** Photos utilisées par l'import (plats valides seulement). */
+const photoStats = computed(() => {
+  const valid = new Set([...(plan.value?.items ?? []), ...(plan.value?.existing ?? [])].map((l) => l.row));
+  const lines = (sheet.value?.lines ?? []).filter((l) => valid.has(l.row) && l.image);
+  return {
+    links: lines.filter((l) => l.image!.kind === 'url').length,
+    files: lines.filter((l) => l.image!.kind === 'file' && fileMatch.value.byRow.has(l.row)).length,
+    missing: lines.filter((l) => l.image!.kind === 'file' && !fileMatch.value.byRow.has(l.row)).length,
+    addToExisting: (plan.value?.photosToAdd ?? []).filter((l) => l.image!.kind === 'url' || fileMatch.value.byRow.has(l.row)).length,
+  };
+});
+const hasFileRefs = computed(() => (sheet.value?.lines ?? []).some((l) => l.image?.kind === 'file'));
+type PhotoState = 'link' | 'file' | 'missing' | 'none';
+function photoState(line: ImportLine): PhotoState {
+  if (!line.image) return 'none';
+  if (line.image.kind === 'url') return 'link';
+  return fileMatch.value.byRow.has(line.row) ? 'file' : 'missing';
+}
+const PHOTO_UI: Record<PhotoState, { icon: string; class: string; label: string }> = {
+  link: { icon: 'i-lucide-link', class: 'text-success', label: 'Photo (lien)' },
+  file: { icon: 'i-lucide-image', class: 'text-success', label: 'Photo (fichier)' },
+  missing: { icon: 'i-lucide-image-off', class: 'text-warning', label: 'Fichier photo introuvable' },
+  none: { icon: 'i-lucide-image-off', class: 'text-dimmed', label: 'Sans photo' },
+};
+
 const toCreate = computed(() => (plan.value?.items.length ?? 0) + (updateExisting.value ? plan.value?.existing.length ?? 0 : 0));
 
 const STATUS_UI: Record<RowStatus, { icon: string; class: string; label: string }> = {
@@ -125,7 +164,43 @@ const STATUS_UI: Record<RowStatus, { icon: string; class: string; label: string 
 const progress = ref({ done: 0, total: 0, label: '' });
 const paused = ref(false);
 const failures = ref<{ row: number; name: string; message: string }[]>([]);
-const result = ref({ categories: 0, created: 0, updated: 0 });
+const result = ref({ categories: 0, created: 0, updated: 0, photos: 0 });
+const photoFailures = ref<{ row: number; name: string; message: string }[]>([]);
+/** Une même image (lien ou fichier) n'est récupérée qu'une fois. */
+let imageCache = new Map<string, Promise<string | null>>();
+
+/**
+ * Photo d'un plat hébergée par QR-Order : fichier déposé → envoi ; lien →
+ * récupération par l'API (Google Drive et Dropbox compris). null si absente
+ * ou en échec (l'échec est noté dans le bilan, le plat est créé quand même).
+ */
+function resolveImage(line: ImportLine): Promise<string | null> {
+  const ref = line.image;
+  if (!ref) return Promise.resolve(null);
+  const fileName = ref.kind === 'file' ? fileMatch.value.byRow.get(line.row) : undefined;
+  if (ref.kind === 'file' && !fileName) return Promise.resolve(null);
+  const key = ref.kind === 'url' ? `url:${ref.url}` : `file:${fileName}`;
+  const cached = imageCache.get(key);
+  if (cached) return cached;
+  const task = (async () => {
+    try {
+      if (ref.kind === 'url') {
+        const res = await send<{ url: string }>(`${restaurant.base}/menu/images/from-url`, { method: 'POST', body: { url: ref.url } });
+        return res.url;
+      }
+      const f = photoList.value.find((x) => x.name === fileName)!;
+      const body = new FormData();
+      body.append('file', f);
+      const res = await send<{ url: string }>(`${restaurant.base}/menu/images`, { method: 'POST', body });
+      return res.url;
+    } catch (err) {
+      photoFailures.value.push({ row: line.row, name: line.name, message: apiErrorMessage(err) });
+      return null;
+    }
+  })();
+  imageCache.set(key, task);
+  return task;
+}
 let cancelled = false;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -146,7 +221,7 @@ async function send<T>(path: string, options: Parameters<typeof api>[1]): Promis
   }
 }
 
-function itemBody(line: ImportLine, categoryId: string) {
+function itemBody(line: ImportLine, categoryId: string, imageUrl: string | null) {
   return {
     categoryId,
     name: line.name,
@@ -156,18 +231,22 @@ function itemBody(line: ImportLine, categoryId: string) {
     ...(line.calories !== undefined && { calories: line.calories }),
     allergens: line.allergens,
     dietaryTags: line.dietaryTags,
-    ...(line.images.length && { images: line.images }),
+    ...(imageUrl && { images: [imageUrl] }),
   };
 }
 
 async function run() {
   const p = plan.value!;
   const updates = updateExisting.value ? p.existing : [];
+  // Photos ajoutées aux plats existants qui n'en ont pas (déjà couvertes si on met tout à jour).
+  const photoOnly = updateExisting.value ? [] : p.photosToAdd;
   step.value = 'running';
   cancelled = false;
   failures.value = [];
-  result.value = { categories: 0, created: 0, updated: 0 };
-  progress.value = { done: 0, total: p.categories.length + p.items.length + updates.length, label: '' };
+  photoFailures.value = [];
+  imageCache = new Map();
+  result.value = { categories: 0, created: 0, updated: 0, photos: 0 };
+  progress.value = { done: 0, total: p.categories.length + p.items.length + updates.length + photoOnly.length, label: '' };
 
   // 1. Catégories manquantes : parents d'abord (ordre du plan).
   for (const c of p.categories) {
@@ -198,10 +277,12 @@ async function run() {
     try {
       const category = categoryOf(line);
       if (!category) throw new Error('Catégorie non créée');
+      const imageUrl = await resolveImage(line);
       const item = await send<MenuItem>(`${restaurant.base}/menu/items`, {
         method: 'POST',
-        body: { ...itemBody(line, category.id), isActive: true },
+        body: { ...itemBody(line, category.id, imageUrl), isActive: true },
       });
+      if (imageUrl) result.value.photos++;
       if (!line.isAvailable) {
         await send(`${restaurant.base}/menu/items/${item.id}/availability`, { method: 'PATCH', body: { isAvailable: false } });
       }
@@ -218,7 +299,9 @@ async function run() {
     progress.value.label = line.name;
     try {
       const category = categoryOf(line)!;
-      await send(`${restaurant.base}/menu/items/${line.itemId}`, { method: 'PATCH', body: itemBody(line, category.id) });
+      const imageUrl = await resolveImage(line);
+      await send(`${restaurant.base}/menu/items/${line.itemId}`, { method: 'PATCH', body: itemBody(line, category.id, imageUrl) });
+      if (imageUrl) result.value.photos++;
       await send(`${restaurant.base}/menu/items/${line.itemId}/availability`, { method: 'PATCH', body: { isAvailable: line.isAvailable } });
       result.value.updated++;
     } catch (err) {
@@ -227,11 +310,27 @@ async function run() {
     progress.value.done++;
   }
 
+  // 4. Photos des plats existants qui n'en avaient pas.
+  for (const line of photoOnly) {
+    if (cancelled) break;
+    progress.value.label = `Photo · ${line.name}`;
+    const imageUrl = await resolveImage(line);
+    if (imageUrl) {
+      try {
+        await send(`${restaurant.base}/menu/items/${line.itemId}`, { method: 'PATCH', body: { images: [imageUrl] } });
+        result.value.photos++;
+      } catch (err) {
+        photoFailures.value.push({ row: line.row, name: line.name, message: apiErrorMessage(err) });
+      }
+    }
+    progress.value.done++;
+  }
+
   step.value = 'done';
 }
 
 const percent = computed(() => (progress.value.total ? Math.round((progress.value.done / progress.value.total) * 100) : 0));
-const imported = computed(() => result.value.categories + result.value.created + result.value.updated > 0);
+const imported = computed(() => result.value.categories + result.value.created + result.value.updated + result.value.photos > 0);
 
 function close() {
   if (step.value === 'running') {
@@ -265,6 +364,19 @@ const sameCategoryName = (a: string, b: string) => sameName(a, b);
           :disabled="reading"
           class="min-h-44 w-full"
         />
+        <UFileUpload
+          v-model="photoFiles"
+          multiple
+          accept="image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif"
+          icon="i-lucide-images"
+          label="Photos des plats (facultatif)"
+          description="Si la colonne « image » contient des noms de fichiers (ex. thieb.jpg) : déposez-les ici · 10 Mo max par photo"
+          layout="list"
+          class="w-full"
+        />
+        <p v-if="rejectedPhotos.length" class="text-xs text-warning">
+          Ignoré(s) (pas une image ou plus de 10 Mo) : {{ rejectedPhotos.map((f) => f.name).join(', ') }}
+        </p>
         <div v-if="reading" class="flex items-center gap-2 text-sm text-muted">
           <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" /> Lecture du fichier…
         </div>
@@ -290,7 +402,11 @@ const sameCategoryName = (a: string, b: string) => sameName(a, b);
             <li>En couleur : obligatoire. Les catégories et sous-catégories absentes sont créées automatiquement.</li>
             <li>Prix en {{ restaurant.currency }} : « 3500 », « 3 500 » ou « 12,50 ».</li>
             <li>disponible : oui / non (vide = oui). Allergènes et régimes séparés par des virgules (ex. « Lait, Gluten »).</li>
-            <li>Les options (taille, sauce…) et les photos s’ajoutent ensuite depuis la fiche du plat ; une URL d’image est acceptée.</li>
+            <li>
+              image : un lien (https://…, Google Drive ou Dropbox partagé) ou le nom d’un fichier photo déposé ci-dessus.
+              Les photos sont récupérées, allégées et hébergées par QR-Order.
+            </li>
+            <li>Les options (taille, sauce…) s’ajoutent ensuite depuis la fiche du plat.</li>
           </ul>
         </div>
       </div>
@@ -334,6 +450,36 @@ const sameCategoryName = (a: string, b: string) => sameName(a, b);
           Nouvelles catégories :
           <span class="text-highlighted">{{ plan.categories.map((c) => (c.parent ? `${c.parent} › ${c.name}` : c.name)).join(', ') }}</span>
         </p>
+        <!-- Photos -->
+        <div v-if="photoStats.links || photoStats.files || photoStats.missing" class="rounded-lg border border-default p-3 text-sm">
+          <p class="flex items-center gap-2 font-medium text-highlighted"><UIcon name="i-lucide-images" class="size-4" /> Photos</p>
+          <p class="mt-1 text-muted">
+            <span v-if="photoStats.links">{{ photoStats.links }} à récupérer depuis un lien</span>
+            <span v-if="photoStats.links && photoStats.files"> · </span>
+            <span v-if="photoStats.files">{{ photoStats.files }} fichier(s) déposé(s)</span>
+            <span v-if="photoStats.addToExisting" class="text-success"> · {{ photoStats.addToExisting }} ajoutée(s) aux plats déjà au menu sans photo</span>
+          </p>
+          <p v-if="photoStats.missing" class="mt-1 text-warning">
+            {{ photoStats.missing }} fichier(s) indiqué(s) dans la colonne « image » mais non déposé(s) : ces plats seront créés sans photo.
+          </p>
+          <p v-if="fileMatch.unused.length" class="mt-1 text-xs text-muted">Fichiers non utilisés : {{ fileMatch.unused.join(', ') }}</p>
+          <div v-if="hasFileRefs" class="mt-3">
+            <UFileUpload
+              v-model="photoFiles"
+              multiple
+              accept="image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif"
+              icon="i-lucide-images"
+              label="Ajouter les fichiers photos"
+              description="Les noms doivent correspondre à la colonne « image »"
+              layout="list"
+              class="w-full"
+            />
+            <p v-if="rejectedPhotos.length" class="text-xs text-warning">
+              Ignoré(s) (pas une image ou plus de 10 Mo) : {{ rejectedPhotos.map((f) => f.name).join(', ') }}
+            </p>
+          </div>
+        </div>
+
         <USwitch
           v-if="plan.existing.length"
           v-model="updateExisting"
@@ -360,6 +506,7 @@ const sameCategoryName = (a: string, b: string) => sameName(a, b);
                 <th class="px-3 py-2 font-medium">Ligne</th>
                 <th class="px-3 py-2 font-medium">Catégorie</th>
                 <th class="px-3 py-2 font-medium">Plat</th>
+                <th class="px-3 py-2 font-medium"><span class="sr-only">Photo</span><UIcon name="i-lucide-image" class="size-4" /></th>
                 <th class="px-3 py-2 text-right font-medium">Prix</th>
                 <th class="px-3 py-2 font-medium">État</th>
               </tr>
@@ -375,6 +522,11 @@ const sameCategoryName = (a: string, b: string) => sameName(a, b);
                   <p v-if="!r.isAvailable" class="text-xs text-warning">Épuisé</p>
                   <p v-for="e in r.errors" :key="e" class="text-xs text-error">{{ e }}</p>
                   <p v-for="w in r.warnings" :key="w" class="text-xs text-warning">{{ w }}</p>
+                </td>
+                <td class="px-3 py-2">
+                  <UTooltip :text="PHOTO_UI[photoState(r)].label">
+                    <UIcon :name="PHOTO_UI[photoState(r)].icon" class="size-4" :class="PHOTO_UI[photoState(r)].class" />
+                  </UTooltip>
                 </td>
                 <td class="px-3 py-2 text-right tabular">{{ r.status === 'invalid' && !r.priceAmount ? '—' : money(r.priceAmount) }}</td>
                 <td class="px-3 py-2">
@@ -409,9 +561,17 @@ const sameCategoryName = (a: string, b: string) => sameName(a, b);
             {{ result.created }} plat(s) ajouté(s)<span v-if="result.updated">, {{ result.updated }} mis à jour</span>
           </p>
           <p class="text-sm text-muted">
-            {{ result.categories }} catégorie(s) créée(s)<span v-if="plan?.invalid.length"> · {{ plan.invalid.length }} ligne(s) en erreur non importée(s)</span>
+            {{ result.categories }} catégorie(s) créée(s)<span v-if="result.photos"> · {{ result.photos }} photo(s) ajoutée(s)</span><span v-if="plan?.invalid.length"> · {{ plan.invalid.length }} ligne(s) en erreur non importée(s)</span>
             <span v-if="cancelled"> · import interrompu</span>
           </p>
+        </div>
+        <div v-if="photoFailures.length" class="max-h-48 overflow-auto rounded-lg border border-warning/30 bg-warning/5 p-3 text-sm">
+          <p class="mb-2 font-medium text-warning">Photos non récupérées ({{ photoFailures.length }}) — plats créés sans photo</p>
+          <ul class="space-y-1">
+            <li v-for="(f, i) in photoFailures" :key="i">
+              <span class="text-muted">Ligne {{ f.row }} · </span><span class="font-medium">{{ f.name }}</span> — {{ f.message }}
+            </li>
+          </ul>
         </div>
         <div v-if="failures.length" class="max-h-60 overflow-auto rounded-lg border border-error/30 bg-error/5 p-3 text-sm">
           <p class="mb-2 font-medium text-error">Non importés ({{ failures.length }})</p>
@@ -440,7 +600,7 @@ const sameCategoryName = (a: string, b: string) => sameName(a, b);
             v-if="step === 'preview'"
             icon="i-lucide-upload"
             :label="`Importer ${toCreate} plat(s)`"
-            :disabled="!toCreate && !plan?.categories.length"
+            :disabled="!toCreate && !plan?.categories.length && !photoStats.addToExisting"
             @click="run"
           />
           <UButton v-if="step === 'done'" label="Terminer" @click="emit('close', imported)" />
