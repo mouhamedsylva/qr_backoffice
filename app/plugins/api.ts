@@ -36,6 +36,10 @@ export default defineNuxtPlugin(() => {
       if (status === 401) {
         auth.clear();
         await navigateTo('/login');
+      } else if (apiErrorCode(err) === 'SUBSCRIPTION_REQUIRED') {
+        // Abonnement arrivé à échéance pendant la session : écran d'abonnement.
+        await useRestaurantStore().load();
+        await navigateTo('/subscribe');
       } else if (!silent) {
         toast.add({
           title: 'Action impossible',

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** Ticket de cuisine : un tap fait avancer une ligne, « Tout prêt » envoie la commande (KDS-01 à KDS-03). */
 import type { KitchenItemStatus, KitchenTicket } from '~/types/api';
-import { MODE_LABEL } from '~/utils/order-status';
+import { orderWhere } from '~/utils/order-status';
 
 const props = defineProps<{ ticket: KitchenTicket; now: number; canManage: boolean; busy: boolean }>();
 const emit = defineEmits<{
@@ -40,11 +40,15 @@ const allStarted = computed(() => props.ticket.items.every((i) => i.kitchenStatu
     class="flex flex-col overflow-hidden rounded-xl border-2 bg-default shadow-sm"
     :class="ticket.isRush ? 'border-primary' : urgency === 'late' ? 'border-error' : 'border-default'"
   >
+    <!-- À emporter : à emballer, bien visible en cuisine -->
+    <p v-if="ticket.mode === 'TAKEAWAY'" class="flex items-center justify-center gap-1.5 bg-warning py-1 text-xs font-bold tracking-wider text-white uppercase">
+      <UIcon name="i-lucide-shopping-bag" class="size-3.5" /> À emporter
+    </p>
     <header class="flex items-start justify-between gap-2 px-3 py-2" :class="HEADER[urgency]">
       <div class="min-w-0">
         <p class="font-display text-2xl leading-none font-bold">n°{{ ticket.number }}</p>
         <p class="mt-1 truncate text-sm font-medium" :class="urgency === 'late' ? 'text-white/90' : 'text-muted'">
-          {{ ticket.table ? `Table ${ticket.table}` : MODE_LABEL[ticket.mode] }}
+          {{ orderWhere(ticket) }}
           <template v-if="ticket.customerName"> · {{ ticket.customerName }}</template>
         </p>
       </div>

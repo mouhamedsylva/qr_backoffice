@@ -3,7 +3,7 @@
 import type { TableColumn } from '@nuxt/ui';
 import { refDebounced } from '@vueuse/core';
 import type { Order, OrderMode, Paginated, PaymentStatus } from '~/types/api';
-import { MODE_LABEL, ORDER_STATUS, PAYMENT_STATUS, type OrderStatus } from '~/utils/order-status';
+import { MODE_LABEL, MODE_UI, ORDER_STATUS, orderWhere, PAYMENT_STATUS, type OrderStatus } from '~/utils/order-status';
 
 const emit = defineEmits<{ open: [order: Order] }>();
 
@@ -89,7 +89,7 @@ async function exportCsv() {
 const columns: TableColumn<Order>[] = [
   { accessorKey: 'number', header: 'N°' },
   { accessorKey: 'createdAt', header: 'Date' },
-  { id: 'where', header: 'Table / mode' },
+  { id: 'where', header: 'Mode' },
   { accessorKey: 'customerName', header: 'Client' },
   { accessorKey: 'status', header: 'Statut' },
   { accessorKey: 'paymentStatus', header: 'Paiement' },
@@ -147,7 +147,9 @@ const columns: TableColumn<Order>[] = [
         <span class="tabular text-sm">{{ dateTime(row.original.createdAt) }}</span>
       </template>
       <template #where-cell="{ row }">
-        {{ row.original.table ? `Table ${row.original.table.label}` : MODE_LABEL[row.original.mode] }}
+        <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold" :class="MODE_UI[row.original.mode].badge">
+          <UIcon :name="MODE_UI[row.original.mode].icon" class="size-3.5" />{{ orderWhere(row.original) }}
+        </span>
       </template>
       <template #customerName-cell="{ row }">
         <span :class="row.original.customerName ? '' : 'text-dimmed'">{{ row.original.customerName ?? '—' }}</span>

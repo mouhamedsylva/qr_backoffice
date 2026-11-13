@@ -11,7 +11,7 @@ const { data: stripe, status, refresh } = useAsyncData(
   async () => {
     if (!canBilling.value) return null;
     try {
-      return await api<{ connected: boolean; chargesEnabled: boolean }>(`${restaurant.base}/payments/stripe/status`, { silent: true });
+      return await api<{ connected: boolean; chargesEnabled: boolean; mode?: 'merchant' | 'recipient' }>(`${restaurant.base}/payments/stripe/status`, { silent: true });
     } catch {
       return null;
     }
@@ -65,7 +65,11 @@ const stripeState = computed(() => {
         <UIcon name="i-lucide-credit-card" class="size-6 text-info" />
         <div class="min-w-48 flex-1">
           <p class="font-medium">Carte bancaire <span class="text-xs text-muted">· Stripe</span></p>
-          <p class="text-sm text-muted">
+          <p v-if="stripe?.mode === 'recipient'" class="text-sm text-muted">
+            Stripe n’ouvre pas de compte marchand dans votre pays : les paiements par carte sont encaissés par QR-Order, puis versés
+            sur votre compte bancaire via Stripe (versements internationaux), commission déduite.
+          </p>
+          <p v-else class="text-sm text-muted">
             Les paiements arrivent directement sur votre compte Stripe. QR-Order ne détient jamais les fonds.
           </p>
         </div>

@@ -61,6 +61,22 @@ export function canTransition(from: OrderStatus, to: OrderStatus): boolean {
 
 export const MODE_LABEL = { DINE_IN: 'Sur place', TAKEAWAY: 'À emporter' } as const;
 
+/** Icône et couleurs du mode (classes écrites en entier pour Tailwind). */
+export const MODE_UI = {
+  DINE_IN: { icon: 'i-lucide-utensils', badge: 'bg-info/10 text-info', strong: 'bg-info text-white' },
+  TAKEAWAY: { icon: 'i-lucide-shopping-bag', badge: 'bg-warning/15 text-warning', strong: 'bg-warning text-white' },
+} as const;
+
+/**
+ * Où servir la commande : « Sur place · Table 4 », « Sur place · Comptoir »
+ * (client sans table) ou « À emporter ». `table` : objet de commande ou libellé (ticket cuisine).
+ */
+export function orderWhere(order: { mode: keyof typeof MODE_LABEL; table?: { label: string } | string | null }): string {
+  if (order.mode === 'TAKEAWAY') return MODE_LABEL.TAKEAWAY;
+  const label = typeof order.table === 'string' ? order.table : order.table?.label;
+  return label ? `${MODE_LABEL.DINE_IN} · Table ${label.replace(/^table\s+/i, '')}` : `${MODE_LABEL.DINE_IN} · Comptoir`;
+}
+
 export const PAYMENT_STATUS: Record<string, { label: string; color: StatusColor }> = {
   UNPAID: { label: 'Non payée', color: 'neutral' },
   PENDING: { label: 'Paiement en cours', color: 'warning' },

@@ -4,6 +4,7 @@ import type { DropdownMenuItem } from '@nuxt/ui';
 defineProps<{ collapsed?: boolean }>();
 
 const auth = useAuthStore();
+const subscription = useSubscriptionStore();
 const colorMode = useColorMode();
 const { soundEnabled } = useOrderAlerts();
 const realtime = useRealtime();
@@ -20,6 +21,7 @@ async function logout() {
 
 const items = computed<DropdownMenuItem[][]>(() => [
   [{ type: 'label', label: fullName.value, description: auth.user?.email }],
+  ...(subscription.isOwner ? [[{ label: 'Abonnement', icon: 'i-lucide-credit-card', to: '/subscription' }]] : []),
   [
     {
       label: 'Thème',

@@ -42,6 +42,8 @@ export interface Me {
 
 export interface Restaurant {
   id: string;
+  /** Faux : abonnement expiré ou absent, le back-office affiche l'écran d'abonnement. */
+  subscriptionActive?: boolean;
   name: string;
   slug: string;
   description: string | null;
@@ -67,6 +69,8 @@ export interface Dashboard {
   isOpen: boolean;
   salesTotal: number;
   ordersCount: number;
+  /** Commandes du jour par mode (hors annulées ou refusées). */
+  ordersByMode?: { DINE_IN: number; TAKEAWAY: number };
   ordersInProgress: number;
   averageBasket: number;
   tablesOccupied: number;
@@ -444,4 +448,45 @@ export interface TaxReport {
     tips: number;
     refunds: number;
   };
+}
+
+// ───────────────────────── Abonnement (forfaits SaaS) ─────────────────────────
+
+export type BillingCycle = 'MONTHLY' | 'YEARLY';
+export type SubscriptionStatus = 'TRIALING' | 'ACTIVE' | 'PAST_DUE' | 'SUSPENDED' | 'CANCELLED';
+
+export interface Plan {
+  id: string;
+  code: string;
+  name: string;
+  priceMonthly: number;
+  priceYearly: number;
+  currency: string;
+  maxRestaurants: number | null;
+  maxTables: number | null;
+  maxMembers: number | null;
+  features: string[];
+  isActive: boolean;
+  position: number;
+}
+
+export interface SubscriptionOverview {
+  subscription: {
+    id: string;
+    status: SubscriptionStatus;
+    billingCycle: BillingCycle;
+    trialEndsAt: string | null;
+    currentPeriodEnd: string | null;
+    plan: Plan;
+  } | null;
+  effectivePlan: Plan;
+  isFallback: boolean;
+  usage: { restaurants: number; tables: number; members: number };
+  trial: { endsAt: string; daysLeft: number; reminderDays: number } | null;
+  requestedPlan: { code: string; name: string; cycle: BillingCycle | null; at: string | null } | null;
+}
+
+export interface TrialOffer {
+  days: number;
+  plan: { code: string; name: string } | null;
 }

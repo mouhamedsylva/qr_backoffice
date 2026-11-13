@@ -37,3 +37,13 @@ describe('workflow des commandes', () => {
     expect([...REASON_REQUIRED].sort()).toEqual(['CANCELLED', 'REJECTED']);
   });
 });
+
+describe('mode de commande', () => {
+  it('indique où servir la commande', async () => {
+    const { orderWhere } = await import('~/utils/order-status');
+    expect(orderWhere({ mode: 'DINE_IN', table: { label: '4' } })).toBe('Sur place · Table 4');
+    expect(orderWhere({ mode: 'DINE_IN', table: 'Table 4' })).toBe('Sur place · Table 4');
+    expect(orderWhere({ mode: 'DINE_IN', table: null })).toBe('Sur place · Comptoir');
+    expect(orderWhere({ mode: 'TAKEAWAY', table: null })).toBe('À emporter');
+  });
+});

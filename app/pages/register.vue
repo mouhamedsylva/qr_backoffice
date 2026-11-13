@@ -1,11 +1,22 @@
 <script setup lang="ts">
 import * as z from 'zod';
 import type { FormSubmitEvent } from '@nuxt/ui';
+import type { TrialOffer } from '~/types/api';
 
 definePageMeta({ layout: 'auth', public: true });
 useHead({ title: 'Créer mon restaurant · QR-Order' });
 
 const auth = useAuthStore();
+const api = useApi();
+
+// Offre d'essai réglée par la plateforme (Vigie → Réglages).
+const { data: offer } = useAsyncData('trial-offer', () => api<TrialOffer>('/billing/trial-offer', { silent: true }).catch(() => null));
+const offerText = computed(() => {
+  const o = offer.value;
+  if (!o) return 'Sans engagement.';
+  if (!o.days || !o.plan) return 'Sans engagement : choisissez votre forfait après l’inscription.';
+  return `${o.days} jour${o.days > 1 ? 's' : ''} d’essai du forfait ${o.plan.name}, sans engagement.`;
+});
 const restaurant = useRestaurantStore();
 
 // Mêmes règles que l'API (RegisterDto).
@@ -61,7 +72,7 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
   <div class="space-y-8">
     <div class="space-y-2">
       <h1 class="font-display text-3xl font-semibold text-highlighted">Créez votre restaurant</h1>
-      <p class="text-muted">14 jours d'essai du forfait Pro, sans engagement.</p>
+      <p class="text-muted">{{ offerText }}</p>
     </div>
 
     <UAlert v-if="error" color="error" variant="subtle" icon="i-lucide-circle-alert" :title="error" />

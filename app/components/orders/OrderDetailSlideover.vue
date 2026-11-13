@@ -3,7 +3,8 @@ import { OrdersReceiptModal, OrdersRefundModal } from '#components';
 import type { Order, Payment } from '~/types/api';
 import {
   canTransition,
-  MODE_LABEL,
+  MODE_UI,
+  orderWhere,
   NEXT_ACTION,
   PAYMENT_STATUS,
   type OrderStatus,
@@ -151,7 +152,10 @@ async function collectCash() {
     </template>
     <template #description>
       <span v-if="order">
-        {{ order.table ? `Table ${order.table.label}` : MODE_LABEL[order.mode] }} · {{ dateTime(order.createdAt) }}
+        <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold" :class="MODE_UI[order.mode].badge">
+          <UIcon :name="MODE_UI[order.mode].icon" class="size-3.5" />{{ orderWhere(order) }}
+        </span>
+        · {{ dateTime(order.createdAt) }}
       </span>
     </template>
 

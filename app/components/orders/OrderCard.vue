@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { DropdownMenuItem } from '@nuxt/ui';
 import type { Order } from '~/types/api';
-import { canTransition, MODE_LABEL, NEXT_ACTION, PAYMENT_STATUS } from '~/utils/order-status';
+import { canTransition, MODE_UI, NEXT_ACTION, orderWhere, PAYMENT_STATUS } from '~/utils/order-status';
 
 const props = defineProps<{ order: Order; now: number }>();
 const emit = defineEmits<{ open: [order: Order] }>();
@@ -55,9 +55,11 @@ const menu = computed<DropdownMenuItem[]>(() => {
       <div class="flex items-start justify-between gap-2">
         <div>
           <p class="font-display text-lg font-semibold leading-tight text-highlighted">n°{{ order.number }}</p>
-          <p class="text-xs text-muted">
-            {{ order.table ? `Table ${order.table.label}` : MODE_LABEL[order.mode] }}
-            <template v-if="order.customerName"> · {{ order.customerName }}</template>
+          <p class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted">
+            <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold" :class="MODE_UI[order.mode].badge">
+              <UIcon :name="MODE_UI[order.mode].icon" class="size-3.5" />{{ orderWhere(order) }}
+            </span>
+            <span v-if="order.customerName">{{ order.customerName }}</span>
           </p>
         </div>
         <div class="flex flex-col items-end gap-1">

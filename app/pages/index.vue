@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useDebounceFn, useNow } from '@vueuse/core';
 import type { AnalyticsOverview, Dashboard } from '~/types/api';
-import { MODE_LABEL } from '~/utils/order-status';
+import { MODE_LABEL, MODE_UI, orderWhere } from '~/utils/order-status';
 
 useHead({ title: 'Tableau de bord · QR-Order' });
 
@@ -82,6 +82,11 @@ const byMode = computed(() =>
     revenue: v.revenue,
   })),
 );
+/** Part d'un mode dans le chiffre d'affaires de la période, en %. */
+const modeShare = (revenue: number) => {
+  const total = byMode.value.reduce((s, m) => s + m.revenue, 0);
+  return total ? Math.round((revenue / total) * 100) : 0;
+};
 
 const recentOrders = computed(() =>
   [...orders.active]
@@ -131,7 +136,13 @@ const recentOrders = computed(() =>
             label="Commandes du jour"
             :value="String(today?.ordersCount ?? 0)"
             icon="i-lucide-receipt-text"
-            :hint="today?.ordersInProgress ? `${today.ordersInProgress} en cours` : 'Aucune en cours'"
+            :hint="
+              today?.ordersByMode
+                ? `${today.ordersByMode.DINE_IN} sur place · ${today.ordersByMode.TAKEAWAY} à emporter${today.ordersInProgress ? ` · ${today.ordersInProgress} en cours` : ''}`
+                : today?.ordersInProgress
+                  ? `${today.ordersInProgress} en cours`
+                  : 'Aucune en cours'
+            "
             :loading="pending && !today"
           />
           <DashboardKpiCard
@@ -208,6 +219,14 @@ const recentOrders = computed(() =>
                 :height="150"
                 aria-label="Répartition du chiffre d'affaires par mode"
               />
+              <ul v-if="byMode.length" class="mt-3 space-y-1.5 text-sm">
+                <li v-for="(m, i) in byMode" :key="m.mode" class="flex items-center gap-2">
+                  <span class="size-2.5 shrink-0 rounded-full" :class="i === 0 ? 'bg-primary' : 'bg-safran-400'" />
+                  <span class="flex-1">{{ m.mode }}</span>
+                  <span class="tabular text-muted">{{ modeShare(m.revenue) }} %</span>
+                  <span class="tabular font-medium">{{ money(m.revenue) }}</span>
+                </li>
+              </ul>
               <p v-else class="text-sm text-muted">Pas encore de ventes sur la période.</p>
             </UCard>
           </div>
@@ -252,7 +271,9 @@ const recentOrders = computed(() =>
                 <span class="tabular w-14 font-display text-lg font-semibold text-highlighted">n°{{ order.number }}</span>
                 <span class="min-w-0 flex-1">
                   <span class="block truncate text-sm text-default">
-                    {{ order.table ? `Table ${order.table.label}` : MODE_LABEL[order.mode] }}
+                    <span class="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 font-semibold" :class="MODE_UI[order.mode].badge">
+                      <UIcon :name="MODE_UI[order.mode].icon" class="size-3" />{{ orderWhere(order) }}
+                    </span>
                     <span v-if="order.customerName" class="text-muted">· {{ order.customerName }}</span>
                   </span>
                   <span class="block text-xs text-muted">{{ time(order.createdAt) }} · {{ formatAge(order.createdAt, now.getTime()) }}</span>

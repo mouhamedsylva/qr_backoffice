@@ -20,4 +20,11 @@ export default defineNuxtRouteMiddleware(async (to) => {
   if (auth.isLoggedIn && isPublic && !to.meta.allowAuthenticated) {
     return navigateTo('/');
   }
+
+  // Sans abonnement valide, le tableau de bord est bloqué : écran d'abonnement à la place.
+  if (auth.isLoggedIn && !isPublic && !auth.user?.isSuperAdmin && restaurant.details) {
+    const blocked = restaurant.details.subscriptionActive === false;
+    if (blocked && to.path !== '/subscribe') return navigateTo('/subscribe');
+    if (!blocked && to.path === '/subscribe') return navigateTo('/');
+  }
 });

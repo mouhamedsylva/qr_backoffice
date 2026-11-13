@@ -4,6 +4,7 @@ import type { Order } from '~/types/api';
 
 const restaurant = useRestaurantStore();
 const orders = useOrdersStore();
+const subscription = useSubscriptionStore();
 const realtime = useRealtime();
 const alerts = useOrderAlerts();
 const toast = useToast();
@@ -30,8 +31,10 @@ const links = computed<NavigationMenuItem[][]>(() => [
     { label: 'Avis clients', icon: 'i-lucide-star', to: '/reviews', perm: 'reviews.manage' },
     { label: 'Équipe', icon: 'i-lucide-users', to: '/team', perm: 'team.view' },
     { label: 'Réglages', icon: 'i-lucide-settings', to: '/settings', perm: 'restaurant.view' },
+    // Abonnement : propriétaire uniquement (l'abonnement est le sien).
+    { label: 'Abonnement', icon: 'i-lucide-credit-card', to: '/subscription', perm: 'owner' },
   ]
-    .filter((l) => restaurant.can(l.perm))
+    .filter((l) => (l.perm === 'owner' ? subscription.isOwner : restaurant.can(l.perm)))
     .map(({ perm: _perm, ...l }) => ({ ...l, onSelect: () => (open.value = false) })),
 ]);
 
@@ -59,7 +62,7 @@ watch(
   async (id) => {
     if (!id) return;
     realtime.connect(id);
-    await orders.load(true);
+    await Promise.all([orders.load(true), subscription.load()]);
   },
   { immediate: true },
 );
@@ -100,13 +103,17 @@ realtime.on('*', (message) => {
 
         <UNavigationMenu :collapsed="collapsed" :items="links[0]" orientation="vertical" tooltip popover />
 
-        <UNavigationMenu
-          :collapsed="collapsed"
-          :items="links[1]"
-          orientation="vertical"
-          tooltip
-          class="mt-auto opacity-80"
-        />
+        <div class="mt-auto space-y-2">
+          <LayoutTrialCard :collapsed="collapsed" />
+          <UNavigationMenu
+            v-if="links[1]?.length"
+            :collapsed="collapsed"
+            :items="links[1]"
+            orientation="vertical"
+            tooltip
+            class="opacity-80"
+          />
+        </div>
       </template>
 
       <template #footer="{ collapsed }">
